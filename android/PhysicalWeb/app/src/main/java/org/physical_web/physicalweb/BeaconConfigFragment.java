@@ -64,7 +64,8 @@ import java.util.concurrent.TimeUnit;
  * and also allows the user to enter a new url for that beacon.
  */
 
-public class BeaconConfigFragment extends Fragment implements TextView.OnEditorActionListener {
+public class BeaconConfigFragment extends Fragment implements TextView.OnEditorActionListener,
+    UrlShortener.UrlShortenerCallback {
 
   private static final String TAG = "BeaconConfigFragment";
   // TODO: default value for TxPower should be in another module
@@ -206,15 +207,15 @@ public class BeaconConfigFragment extends Fragment implements TextView.OnEditorA
         url = uriBeacon.getUriString();
         Log.d(TAG, "onReadUrlComplete" + "  url:  " + url);
         if (UrlShortener.isShortUrl(url)) {
-          url = UrlShortener.lengthenShortUrl(url);
+          UrlShortener.lengthenShortUrl(BeaconConfigFragment.this, url);
+          // Exit here so we only show the called back long url
+          return;
         }
       }
       else {
         Toast.makeText(getActivity(), R.string.config_url_read_error, Toast.LENGTH_SHORT).show();
       }
-      // Update the url edit text field with the given url
       mEditCardUrl.setText(url);
-      // Show the beacon configuration card
       showConfigurableBeaconCard();
     }
   }
@@ -308,9 +309,14 @@ public class BeaconConfigFragment extends Fragment implements TextView.OnEditorA
    * of the currently-being-configured beacon
    */
   private void showConfigurableBeaconCard() {
-    mEditCard.setVisibility(View.VISIBLE);
-    Animation animation = AnimationUtils.loadAnimation(getActivity(), R.anim.fade_in_and_slide_up);
-    mEditCard.startAnimation(animation);
+    getActivity().runOnUiThread(new Runnable() {
+      @Override
+      public void run() {
+        mEditCard.setVisibility(View.VISIBLE);
+        Animation animation = AnimationUtils.loadAnimation(getActivity(), R.anim.fade_in_and_slide_up);
+        mEditCard.startAnimation(animation);
+      }
+    });
   }
 
   /**
@@ -329,9 +335,15 @@ public class BeaconConfigFragment extends Fragment implements TextView.OnEditorA
     }
     // Shorten the url if necessary
     if (ConfigUriBeacon.uriLength(url) > ConfigUriBeacon.MAX_URI_LENGTH) {
-      url = UrlShortener.shortenUrl(url);
+      UrlShortener.shortenUrl(BeaconConfigFragment.this, url);
+      // Exit so we only write to the beacon when the shortener calls back
+      return;
     }
     // Write the url to the device
+    writeUrlToBeacon(url);
+  }
+
+  private void writeUrlToBeacon(String url) {
     try {
       // Note: setting txPower here only really updates txPower for v1 beacons
       ConfigUriBeacon configUriBeacon = new ConfigUriBeacon.Builder()
@@ -343,6 +355,17 @@ public class BeaconConfigFragment extends Fragment implements TextView.OnEditorA
       e.printStackTrace();
       Toast.makeText(getActivity(), R.string.config_url_error, Toast.LENGTH_SHORT).show();
     }
+  }
+
+  @Override
+  public void onUrlShortened(String shortUrl) {
+    writeUrlToBeacon(shortUrl);
+  }
+
+  @Override
+  public void onUrlLengthened(String longUrl) {
+    mEditCardUrl.setText(longUrl);
+    showConfigurableBeaconCard();
   }
 
   /**

@@ -17,6 +17,8 @@
 package org.physical_web.physicalweb;
 
 import android.os.AsyncTask;
+import android.util.Log;
+
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.extensions.android.json.AndroidJsonFactory;
 import com.google.api.client.http.HttpTransport;
@@ -24,12 +26,11 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.services.urlshortener.Urlshortener;
 import com.google.api.services.urlshortener.UrlshortenerRequestInitializer;
 import com.google.api.services.urlshortener.model.Url;
+
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.concurrent.ExecutionException;
-import android.util.Log;
 
 /**
  * This class shortens urls and also expands those short urls
@@ -41,6 +42,12 @@ class UrlShortener {
 
   private static final String TAG = "UrlShortener";
 
+  public interface UrlShortenerCallback {
+    public void onUrlShortened(String shortUrl);
+
+    public void onUrlLengthened(String longUrl);
+  }
+
   /**
    * Create the shortened form
    * of the given url.
@@ -49,36 +56,42 @@ class UrlShortener {
    * @return The short url for the given longUrl
    */
   // TODO: make sure this network operation is off the ui thread
-  public static String shortenUrl(String longUrl) {
-    String shortUrl = null;
-    try {
-      shortUrl = new ShortenUrlTask().execute(longUrl).get();
-    } catch (InterruptedException | ExecutionException e) {
-      e.printStackTrace();
-    }
-    return shortUrl;
+  public static void shortenUrl(UrlShortenerCallback urlShortenerCallback, String longUrl) {
+    Log.d(TAG, "longUrl:  " + longUrl);
+    new ShortenUrlTask(urlShortenerCallback, longUrl).execute();
   }
 
   /**
    * Create a google url shortener interface object
    * and make a request to shorten the given url
    */
-  private static class ShortenUrlTask extends AsyncTask<String, Void, String> {
+  private static class ShortenUrlTask extends AsyncTask<Void, Void, Void> {
+
+    private String mLongUrl;
+    private UrlShortenerCallback mUrlShortenerCallback;
+
+    public ShortenUrlTask(UrlShortenerCallback urlShortenerCallback, String longUrl) {
+      mUrlShortenerCallback = urlShortenerCallback;
+      mLongUrl = longUrl;
+    }
+
     @Override
-    protected String doInBackground(String[] params) {
-      String longUrl = params[0];
+    protected Void doInBackground(Void... params) {
+      String shortUrl = null;
       Urlshortener urlshortener = createGoogleUrlShortener();
       Url url = new Url();
-      url.setLongUrl(longUrl);
+      url.setLongUrl(mLongUrl);
       try {
         Url response = urlshortener.url().insert(url).execute();
         //avoid possible NPE
         if (response != null) {
-          return response.getId();
+          shortUrl = response.getId();
         }
       } catch (IOException e) {
         e.printStackTrace();
       }
+      Log.d(TAG, "shortUrl:  " + shortUrl);
+      mUrlShortenerCallback.onUrlShortened(shortUrl);
       return null;
     }
   }
@@ -118,31 +131,37 @@ class UrlShortener {
    * @return The lengthened url for the given short url
    */
   // TODO: make sure this network operation is off the ui thread
-  public static String lengthenShortUrl(String shortUrl) {
-    String longUrl = null;
-    try {
-      longUrl = new LengthenShortUrlTask().execute(shortUrl).get();
-    } catch (InterruptedException | ExecutionException e) {
-      e.printStackTrace();
-    }
-    return longUrl;
+  public static void lengthenShortUrl(UrlShortenerCallback urlShortenerCallback, String shortUrl) {
+    Log.d(TAG, "shortUrl: " + shortUrl);
+    new LengthenShortUrlTask(urlShortenerCallback, shortUrl).execute();
   }
 
-  private static class LengthenShortUrlTask extends AsyncTask<String, Void, String> {
+  private static class LengthenShortUrlTask extends AsyncTask<Void, Void, Void> {
+
+    private UrlShortenerCallback mUrlShortenerCallback;
+    private String mShortUrl;
+
+    public LengthenShortUrlTask(UrlShortenerCallback urlShortenerCallback, String shortUrl) {
+      mUrlShortenerCallback = urlShortenerCallback;
+      mShortUrl = shortUrl;
+    }
+
     @Override
-    protected String doInBackground(String[] params) {
-      String shortUrl = params[0];
+    protected Void doInBackground(Void... params) {
+      String longUrl = null;
       try {
-        URL url = new URL(shortUrl);
+        URL url = new URL(mShortUrl);
         HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
         httpURLConnection.setInstanceFollowRedirects(false);
-        String longUrl = httpURLConnection.getHeaderField("location");
-        return (longUrl != null) ? longUrl : shortUrl;
+        longUrl = httpURLConnection.getHeaderField("location");
+        longUrl = (longUrl != null) ? longUrl : mShortUrl;
       } catch (MalformedURLException e) {
-        Log.w(TAG, "Malformed URL: " + shortUrl);
+        Log.w(TAG, "Malformed URL: " + mShortUrl);
       } catch (IOException e) {
         e.printStackTrace();
       }
+      Log.d(TAG, "longUrl: " + longUrl);
+      mUrlShortenerCallback.onUrlLengthened(longUrl);
       return null;
     }
   }
